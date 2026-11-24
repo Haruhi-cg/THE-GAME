@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<title>ザ・ゲーム オンライン</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Zen+Kaku+Gothic+New:wght@500;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<style>
+:root{color-scheme:light dark;
+--bg:light-dark(#efe9df,#14161a);--felt:light-dark(#e2dacd,#1d2026);--ink:light-dark(#16181c,#f1ede6);--mute:light-dark(#5c5a55,#9a9a9e);
+--card:light-dark(#fffdf8,#f4f0e8);--cardink:#16181c;--up:#ff6a3d;--down:#2f8ff0;--ok:#1fa35b;--ng:#d6453a}
+*{box-sizing:border-box;min-width:0}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 "Zen Kaku Gothic New",system-ui,sans-serif;overflow-x:clip;-webkit-tap-highlight-color:transparent}
+.wrap{max-width:560px;margin:0 auto;padding:14px max(3vw,12px) 28px}
+header{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap}
+h1{font:400 34px/1.05 Anton,sans-serif;margin:0;letter-spacing:.02em}
+h2{font-size:20px;margin:0 0 8px}
+.stats{display:flex;gap:14px;color:var(--mute);font-size:14px}
+.stats b{font:400 20px Anton,sans-serif;color:var(--ink);margin-left:4px}
+.panel{margin-top:14px;background:var(--felt);border-radius:18px;padding:18px 16px}
+.panel p{margin:4px 0 12px;color:var(--mute);font-size:15px}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+input[type=text]{flex:1;min-height:52px;border-radius:14px;border:2px solid var(--ink);background:var(--bg);color:var(--ink);font:500 17px "Zen Kaku Gothic New";padding:0 14px;min-width:0}
+#codeIn{font:400 24px Anton,sans-serif;letter-spacing:.2em;text-transform:uppercase}
+.players{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
+.pl{display:flex;align-items:center;gap:6px;padding:5px 12px;border-radius:999px;background:var(--felt);font-size:14px;border:2px solid transparent}
+.pl.cur{border-color:var(--ok)}.pl.off{opacity:.45}
+.pl b{font:400 16px Anton,sans-serif}
+.table{margin-top:10px;background:var(--felt);border-radius:18px;padding:14px 10px 10px}
+.piles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.pile{display:flex;flex-direction:column;align-items:center;gap:5px}
+.pbtn{border:0;background:none;padding:0;font:inherit;color:inherit;cursor:pointer;width:100%;display:flex;flex-direction:column;align-items:center;gap:5px}
+.lab{font-size:13px;font-weight:700}
+.up .lab{color:var(--up)}.down .lab{color:var(--down)}
+.face{width:100%;aspect-ratio:5/7;border-radius:12px;background:var(--card);color:var(--cardink);display:grid;place-items:center;
+font:400 clamp(30px,10vw,46px)/1 Anton,sans-serif;box-shadow:0 2px 0 rgba(0,0,0,.12),0 6px 14px rgba(0,0,0,.18);position:relative;transition:transform .15s,box-shadow .15s}
+.up .face{border-top:8px solid var(--up)}.down .face{border-top:8px solid var(--down)}
+.can .face{transform:translateY(-4px);box-shadow:0 0 0 3px var(--ok),0 10px 18px rgba(0,0,0,.25)}
+.dim .face{opacity:.4}
+.flash .face{animation:fl .8s}
+@keyframes fl{0%{box-shadow:0 0 0 5px var(--ink)}100%{box-shadow:0 2px 0 rgba(0,0,0,.12),0 6px 14px rgba(0,0,0,.18)}}
+.trick{position:absolute;bottom:6px;font:700 11px "Zen Kaku Gothic New";background:var(--ok);color:#fff;border-radius:6px;padding:1px 6px}
+.prev{font-size:12px;color:var(--mute);min-height:18px}
+.sigbtn{width:100%;min-height:36px;border-radius:10px;border:1.5px dashed var(--mute);background:transparent;color:var(--mute);font:700 12px "Zen Kaku Gothic New";cursor:pointer;padding:0 2px}
+.sigbtn.go{border:1.5px solid var(--ok);background:var(--ok);color:#fff}
+.sigbtn.no{border:1.5px solid var(--ng);background:var(--ng);color:#fff}
+.sigs{font-size:11px;line-height:1.35;min-height:15px;text-align:center;width:100%;overflow-wrap:anywhere}
+.sigs .g{color:var(--ok)}.sigs .n{color:var(--ng)}
+.status{margin:12px 2px 0;min-height:48px;font-size:15px;display:flex;align-items:center;gap:10px}
+.dots{display:flex;gap:5px}.dots i{width:12px;height:12px;border-radius:50%;border:2px solid var(--mute)}.dots i.on{background:var(--ok);border-color:var(--ok)}
+.hand{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:8px}
+.c{border:0;font:400 clamp(28px,9vw,40px)/1 Anton,sans-serif;aspect-ratio:5/7;border-radius:12px;background:var(--card);color:var(--cardink);cursor:pointer;
+box-shadow:0 2px 0 rgba(0,0,0,.12),0 5px 12px rgba(0,0,0,.16);transition:transform .15s}
+.c.sel{transform:translateY(-10px);box-shadow:0 0 0 3px var(--ink),0 12px 18px rgba(0,0,0,.25)}
+.c.no{opacity:.55}
+.c:focus-visible,.pbtn:focus-visible .face,.btn:focus-visible,.sigbtn:focus-visible{outline:3px solid var(--ok);outline-offset:2px}
+.actions{display:flex;gap:8px;margin-top:16px}
+.btn{flex:1;min-height:52px;border-radius:14px;border:2px solid var(--ink);background:transparent;color:var(--ink);font:700 16px "Zen Kaku Gothic New";cursor:pointer;padding:0 14px}
+.btn.main{background:var(--ink);color:var(--bg)}
+.btn.small{flex:none;min-height:44px;font-size:14px}
+.btn:disabled{opacity:.35;cursor:default}
+.opts{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:14px;font-size:14px;color:var(--mute);flex-wrap:wrap}
+label.ck{display:flex;align-items:center;gap:8px;min-height:44px}
+label.ck input{width:22px;height:22px;accent-color:var(--ok)}
+.code{font:400 40px/1 Anton,sans-serif;letter-spacing:.15em}
+.err{color:var(--ng);font-size:14px;min-height:20px;margin-top:8px}
+details{margin-top:14px;border-top:1px solid color-mix(in srgb,var(--ink) 18%,transparent);padding-top:10px}
+summary{cursor:pointer;font-weight:700;min-height:44px;display:flex;align-items:center}
+details ul{padding-left:1.2em;margin:4px 0 0;font-size:15px}
+.result{text-align:center}
+.result .big{font:400 72px/1 Anton,sans-serif;margin:6px 0}
+[hidden]{display:none!important}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>THE GAME</h1>
+    <div class="stats" id="stats" hidden><span>山札<b id="deckN">0</b></span><span>残り<b id="leftN">98</b></span></div>
+  </header>
+
+  <section id="vHome" class="panel">
+    <h2>名前</h2>
+    <input type="text" id="nameIn" maxlength="10" placeholder="ニックネーム" autocomplete="off">
+    <h2 style="margin-top:20px">部屋を作る</h2>
+    <p>作った人のスマホが部屋になります。ゲーム中はページを閉じないでください。</p>
+    <button class="btn main" id="create" style="width:100%">新しい部屋を作る</button>
+    <h2 style="margin-top:22px">部屋に入る</h2>
+    <div class="row"><input type="text" id="codeIn" maxlength="4" placeholder="ABCD" autocomplete="off" aria-label="部屋コード"><button class="btn main small" id="join">参加</button></div>
+    <div class="err" id="homeErr"></div>
+  </section>
+
+  <section id="vWait" class="panel" hidden><p id="waitMsg">接続しています…</p><button class="btn small" id="cancel">やめる</button></section>
+
+  <section id="vLobby" class="panel" hidden>
+    <p style="margin:0">部屋コード</p>
+    <div class="code" id="lobbyCode"></div>
+    <div class="row" style="margin-top:10px"><button class="btn small" id="copy">招待リンクをコピー</button></div>
+    <div class="players" id="lobbyPlayers"></div>
+    <label class="ck"><input type="checkbox" id="hard">上級：1ターン3枚以上</label>
+    <p id="lobbyMsg"></p>
+    <div class="row"><button class="btn main" id="start">ゲーム開始</button><button class="btn small" id="leave1">退出</button></div>
+  </section>
+
+  <section id="vGame" hidden>
+    <div class="players" id="gPlayers"></div>
+    <div class="table"><div class="piles" id="piles"></div></div>
+    <div class="status" id="status"></div>
+    <div class="hand" id="hand"></div>
+    <div class="actions" id="acts">
+      <button class="btn" id="undo">1枚戻す</button>
+      <button class="btn main" id="end">ターン終了</button>
+    </div>
+    <div class="panel result" id="result" hidden>
+      <h2 id="rTitle"></h2><div class="big" id="rNum"></div><p id="rMsg"></p>
+      <button class="btn main" id="again" style="width:100%">同じメンバーでもう一度</button>
+    </div>
+    <div class="opts"><span id="roomLab"></span><button class="btn small" id="leave2">部屋を出る</button></div>
+  </section>
+  <div class="err" id="netErr"></div>
+
+  <details>
+    <summary>ルール</summary>
+    <ul>
+      <li>2〜99のカード98枚を、全員で協力して出し切れば勝ち。手札は1人8枚、2人7枚、3〜5人6枚。</li>
+      <li>「1」の2列は大きい数字だけ、「100」の2列は小さい数字だけ置ける。</li>
+      <li>ちょうど10違うカードなら逆向きに置ける（バック10）。</li>
+      <li>自分の番に最低2枚（上級は3枚）出して、ターン終了で補充。山札が尽きたら最低1枚。</li>
+      <li>必要な枚数を出せない人が出たら終了。残りが10枚未満なら上出来。</li>
+      <li>数字は言わずに、列の下の「合図」で「任せて」「置かないで」を伝え合おう。</li>
+    </ul>
+  </details>
+</div>
+<script>
+{
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const CH='ABCDEFGHJKLMNPQRSTUVWXYZ23456789',PREFIX='thegame-jp-v1-';
+const store={get(k){try{return localStorage.getItem(k)}catch(e){return null}},set(k,v){try{localStorage.setItem(k,v)}catch(e){}}};
+let myId=store.get('tg-pid');if(!myId){myId=Math.random().toString(36).slice(2,12);store.set('tg-pid',myId)}
+$('nameIn').value=store.get('tg-name')||'';
+
+let peer=null,isHost=false,code=null,hostConn=null,conns={},G=null,V=null,sel=null,lastKey='';
+
+function show(v){for(const id of ['vHome','vWait','vLobby','vGame'])$(id).hidden=id!==v;$('stats').hidden=v!=='vGame'}
+const netErr=m=>$('netErr').textContent=m||'';
+const myName=()=>($('nameIn').value.trim()||'名無し').slice(0,10);
+
+/* ===== ルール ===== */
+const top=p=>p[p.length-1];
+const isUp=i=>i<2;
+const can=(c,p,i)=>isUp(i)?(c>top(p)||c===top(p)-10):(c<top(p)||c===top(p)+10);
+const isTrick=(c,p,i)=>isUp(i)?c===top(p)-10:c===top(p)+10;
+const handSize=n=>n===1?8:n===2?7:6;
+const minPlays=g=>g.deck.length?(g.hard?3:2):1;
+const anyMove=(h,piles)=>h.some(c=>piles.some((p,i)=>can(c,p,i)));
+const totalLeft=g=>g.deck.length+g.players.reduce((s,p)=>s+(g.hands[p.id]||[]).length,0);
+function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
+
+/* ===== ホスト：ゲーム進行 ===== */
+function lobby(players,hard){return{status:'lobby',players,hard:!!hard,deck:[],hands:{},piles:[[1],[1],[100],[100]],turn:0,tc:0,played:0,undo:[],sig:{},last:null,result:null}}
+function over(win){G.status='over';G.result={win,left:win?0:totalLeft(G)}}
+function handle(pid,a){
+  const pi=G.players.findIndex(p=>p.id===pid);if(pi<0)return;
+  const cur=G.status==='play'&&G.turn===pi,hand=G.hands[pid]||[];
+  if(a.t==='hard'&&pi===0&&G.status==='lobby')G.hard=!!a.v;
+  else if(a.t==='start'&&pi===0&&G.status==='lobby'){
+    const n=G.players.length,hs=handSize(n),deck=shuffle(Array.from({length:98},(_,i)=>i+2));
+    Object.assign(G,lobby(G.players,G.hard),{status:'play',deck});
+    for(const p of G.players)G.hands[p.id]=deck.splice(-hs).sort((x,y)=>x-y);
+    if(!anyMove(G.hands[G.players[0].id],G.piles))over(false);
+  }
+  else if(a.t==='again'&&pi===0&&G.status==='over')G=lobby(G.players,G.hard);
+  else if(a.t==='sig'&&G.status==='play'&&a.pi>=0&&a.pi<4){
+    const s=G.sig[pid],p=s&&s.t===G.tc?s.p.slice():['','','',''];
+    p[a.pi]=p[a.pi]==='go'?'no':p[a.pi]==='no'?'':'go';G.sig[pid]={t:G.tc,p};
+  }
+  else if(a.t==='play'&&cur){
+    const k=hand.indexOf(a.c);if(k<0||!(a.pi>=0&&a.pi<4)||!can(a.c,G.piles[a.pi],a.pi))return;
+    hand.splice(k,1);G.piles[a.pi].push(a.c);G.played++;G.undo.push({c:a.c,pi:a.pi});G.last={by:pid,pi:a.pi,n:Date.now()};
+    if(totalLeft(G)===0)over(true);
+    else if(G.played<minPlays(G)&&!anyMove(hand,G.piles))over(false);
+  }
+  else if(a.t==='undo'&&cur&&G.undo.length){
+    const u=G.undo.pop();G.piles[u.pi].pop();hand.push(u.c);hand.sort((x,y)=>x-y);G.played--;G.last=null;
+  }
+  else if(a.t==='end'&&cur&&G.played>=minPlays(G)){
+    const hs=handSize(G.players.length);
+    while(hand.length<hs&&G.deck.length)hand.push(G.deck.pop());hand.sort((x,y)=>x-y);
+    const n=G.players.length;
+    for(let k=1;k<=n;k++){const i=(G.turn+k)%n;if((G.hands[G.players[i].id]||[]).length){G.turn=i;break}}
+    G.tc++;G.played=0;G.undo=[];
+    if(!anyMove(G.hands[G.players[G.turn].id]||[],G.piles))over(false);
+  }
+  else return;
+  broadcast();
+}
+function viewFor(pid){
+  return{status:G.status,code,hard:G.hard,deckN:G.deck.length,left:G.status==='lobby'?98:totalLeft(G),piles:G.piles,turn:G.turn,tc:G.tc,
+    played:G.played,need:G.status==='play'?minPlays(G):0,undoN:G.undo.length,last:G.last,result:G.result,me:pid,
+    players:G.players.map(p=>({id:p.id,name:p.name,n:(G.hands[p.id]||[]).length,on:p.id===myId||!!(conns[p.id]&&conns[p.id].open)})),
+    sig:Object.fromEntries(Object.entries(G.sig).filter(([,s])=>s.t===G.tc).map(([k,s])=>[k,s.p])),
+    hand:(G.hands[pid]||[]).slice()};
+}
+function broadcast(){
+  for(const p of G.players){const c=conns[p.id];if(c&&c.open)try{c.send({t:'state',v:viewFor(p.id)})}catch(e){}}
+  V=viewFor(myId);render();
+}
+
+/* ===== 接続 ===== */
+function newCode(){let s='';for(let i=0;i<4;i++)s+=CH[Math.floor(Math.random()*CH.length)];return s}
+function noLib(){if(typeof Peer==='undefined'){$('homeErr').textContent='通信ライブラリを読み込めませんでした。電波の良い所で開き直してください。';return true}return false}
+function createRoom(tries=0){
+  if(noLib())return;store.set('tg-name',myName());
+  isHost=true;code=newCode();show('vWait');$('waitMsg').textContent='部屋を作っています…';
+  peer=new Peer(PREFIX+code);
+  peer.on('open',()=>{G=lobby([{id:myId,name:myName()}],false);setHash();broadcast()});
+  peer.on('error',e=>{
+    if(e.type==='unavailable-id'&&tries<5){peer.destroy();return createRoom(tries+1)}
+    if(!G){show('vHome');$('homeErr').textContent='部屋を作れませんでした（'+e.type+'）。少し待ってもう一度。'}else netErr('通信エラー：'+e.type);
+  });
+  peer.on('disconnected',()=>{try{peer.reconnect()}catch(e){}});
+  peer.on('connection',c=>{
+    c.on('data',m=>{
+      if(!m||typeof m!=='object')return;
+      if(m.t==='join'){
+        const pid=String(m.id||'').slice(0,20),name=String(m.name||'名無し').slice(0,10);
+        let p=G.players.find(x=>x.id===pid);
+        if(!p){
+          if(G.status!=='lobby'){c.send({t:'deny',m:'その部屋はもうゲーム中です'});return}
+          if(G.players.length>=5){c.send({t:'deny',m:'満員です（最大5人）'});return}
+          p={id:pid,name};G.players.push(p);
+        }else p.name=name;
+        c.pid=pid;conns[pid]=c;broadcast();
+      }else if(c.pid)handle(c.pid,m);
+    });
+    c.on('close',()=>{if(c.pid&&conns[c.pid]===c){delete conns[c.pid];
+      if(G.status==='lobby')G.players=G.players.filter(p=>p.id!==c.pid);broadcast()}});
+  });
+}
+function joinRoom(c){
+  if(noLib())return;
+  c=(c||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+  if(c.length!==4){$('homeErr').textContent='4文字のコードを入れてください';return}
+  store.set('tg-name',myName());$('homeErr').textContent='';
+  isHost=false;code=c;show('vWait');$('waitMsg').textContent='部屋 '+c+' に接続しています…';
+  if(peer)peer.destroy();
+  peer=new Peer();
+  const fail=m=>{if(!V){show('vHome');$('homeErr').textContent=m}else netErr(m)};
+  const t=setTimeout(()=>fail('つながりませんでした。コードを確認するか、Wi-Fiとモバイル通信を切り替えて試してください。'),15000);
+  peer.on('error',e=>{clearTimeout(t);fail(e.type==='peer-unavailable'?'その部屋は見つかりません（作った人のページが閉じているかも）':'通信エラー：'+e.type)});
+  peer.on('open',()=>{
+    hostConn=peer.connect(PREFIX+c,{reliable:true});
+    hostConn.on('open',()=>{clearTimeout(t);hostConn.send({t:'join',id:myId,name:myName()});setHash()});
+    hostConn.on('data',m=>{
+      if(m&&m.t==='state'){V=m.v;netErr('');render()}
+      else if(m&&m.t==='deny'){clearTimeout(t);V=null;show('vHome');$('homeErr').textContent=m.m;peer.destroy()}
+    });
+    hostConn.on('close',()=>{if(V){netErr('部屋との接続が切れました。');V=null;show('vHome');$('homeErr').textContent='部屋との接続が切れました。もう一度「参加」で戻れます。';$('codeIn').value=code}});
+  });
+}
+function send(a){if(isHost)handle(myId,a);else if(hostConn&&hostConn.open)hostConn.send(a);else netErr('接続が切れています')}
+function setHash(){try{history.replaceState(null,'','#'+code)}catch(e){}}
+function leave(){
+  if(isHost&&G&&G.status!=='lobby'&&G.players.length>1&&!window.confirmLeave){
+    window.confirmLeave=true;netErr('あなたが部屋なので、出るとゲームが終わります。もう一度押すと退出します。');return}
+  window.confirmLeave=false;
+  try{peer&&peer.destroy()}catch(e){}
+  peer=null;hostConn=null;conns={};G=null;V=null;isHost=false;sel=null;netErr('');
+  try{history.replaceState(null,'',location.pathname+location.search)}catch(e){}
+  show('vHome');
+}
+
+/* ===== 描画 ===== */
+const nm=id=>{if(id===V.me)return'あなた';const p=V.players.find(x=>x.id===id);return p?p.name:'?'};
+function chips(withN){return V.players.map((p,i)=>`<span class="pl ${withN&&V.status==='play'&&i===V.turn?'cur':''} ${p.on?'':'off'}">${esc(p.id===V.me?p.name+'（あなた）':p.name)}${withN?` <b>${p.n}</b>`:i===0?'（部屋）':''}</span>`).join('')}
+function render(){
+  if(!V)return;
+  if(V.status==='lobby'){
+    show('vLobby');const host=V.players[0]&&V.players[0].id===V.me;
+    $('lobbyCode').textContent=V.code;$('lobbyPlayers').innerHTML=chips(false);
+    $('hard').checked=V.hard;$('hard').disabled=!host;$('start').hidden=!host;
+    $('lobbyMsg').textContent=host?`${V.players.length}人が参加中。そろったら開始（最大5人）。`:'部屋を作った人の開始を待っています。';
+    return;
+  }
+  show('vGame');
+  const mt=V.status==='play'&&V.players[V.turn]&&V.players[V.turn].id===V.me,hand=V.hand;
+  if(sel!==null&&(!mt||sel>=hand.length))sel=null;
+  const c=mt&&sel!==null?hand[sel]:null;
+  const key=V.last?V.last.n+':'+V.last.pi:'',flash=key&&key!==lastKey&&V.last.by!==V.me?V.last.pi:-1;lastKey=key;
+  $('deckN').textContent=V.deckN;$('leftN').textContent=V.left;$('gPlayers').innerHTML=chips(true);
+  const mine=V.sig[V.me]||['','','',''];
+  $('piles').innerHTML=V.piles.map((p,i)=>{
+    const ok=c!==null&&can(c,p,i),tr=ok&&isTrick(c,p,i);
+    const prev=p.length>2?p.slice(-3,-1).join(' · '):p.length===2?String(p[0]):'';
+    const others=Object.entries(V.sig).filter(([id,s])=>id!==V.me&&s[i]).map(([id,s])=>`<span class="${s[i]==='go'?'g':'n'}">${esc(nm(id))}:${s[i]==='go'?'任せて':'待って'}</span>`).join('<br>');
+    return `<div class="pile ${isUp(i)?'up':'down'} ${c===null?'':ok?'can':'dim'} ${i===flash?'flash':''}">
+      <button class="pbtn" data-i="${i}" aria-label="${isUp(i)?'上昇':'下降'}の列、一番上は${top(p)}">
+        <span class="lab">${isUp(i)?'▲ 上へ':'▼ 下へ'}</span>
+        <span class="face">${top(p)}${tr?'<span class="trick">バック10</span>':''}</span>
+        <span class="prev">${prev}</span></button>
+      ${V.status==='play'?`<button class="sigbtn ${mine[i]}" data-s="${i}">${mine[i]==='go'?'任せて':mine[i]==='no'?'置かないで':'合図'}</button>`:''}
+      <div class="sigs">${others}</div></div>`}).join('');
+  $('hand').innerHTML=hand.map((v,i)=>`<button class="c ${mt&&i===sel?'sel':''} ${mt&&!V.piles.some((p,j)=>can(v,p,j))?'no':''}" data-i="${i}">${v}</button>`).join('');
+  let msg,dots='';
+  if(V.status==='over')msg='ゲーム終了';
+  else if(mt){
+    dots=`<span class="dots">${Array.from({length:V.need},(_,i)=>`<i class="${i<V.played?'on':''}"></i>`).join('')}</span>`;
+    msg=V.played<V.need?`あなたの番：あと${V.need-V.played}枚`:anyMove(hand,V.piles)?'さらに出すか、ターン終了':'もう出せません。ターン終了を';
+  }else msg=`${esc(nm(V.players[V.turn].id))}さんの番（${V.played}枚出した）`;
+  $('status').innerHTML=dots+`<span>${msg}</span>`;
+  $('acts').hidden=!mt;$('end').disabled=V.played<V.need;$('undo').disabled=!V.undoN;
+  $('roomLab').textContent='部屋 '+V.code+(V.hard?'・上級':'');
+  $('result').hidden=V.status!=='over';
+  if(V.status==='over'&&V.result){
+    const n=V.result.left;
+    $('rTitle').textContent=V.result.win?'完全勝利！':'ここまで';$('rNum').textContent=n;
+    $('rMsg').textContent=V.result.win?'98枚すべて出し切りました。':n<10?`残り${n}枚。上出来です。`:`残り${n}枚。次はもっと減らそう。`;
+    $('again').hidden=V.players[0].id!==V.me;
+  }
+}
+
+/* ===== イベント ===== */
+$('create').addEventListener('click',()=>createRoom());
+$('join').addEventListener('click',()=>joinRoom($('codeIn').value));
+$('codeIn').addEventListener('keydown',e=>{if(e.key==='Enter')joinRoom($('codeIn').value)});
+$('cancel').addEventListener('click',leave);
+$('leave1').addEventListener('click',leave);$('leave2').addEventListener('click',leave);
+$('start').addEventListener('click',()=>send({t:'start'}));
+$('hard').addEventListener('change',()=>send({t:'hard',v:$('hard').checked}));
+$('again').addEventListener('click',()=>send({t:'again'}));
+$('undo').addEventListener('click',()=>send({t:'undo'}));
+$('end').addEventListener('click',()=>{sel=null;send({t:'end'})});
+$('hand').addEventListener('click',e=>{const b=e.target.closest('.c');if(!b||!V)return;const mt=V.players[V.turn]&&V.players[V.turn].id===V.me&&V.status==='play';if(!mt)return;const i=+b.dataset.i;sel=sel===i?null:i;render()});
+$('piles').addEventListener('click',e=>{
+  const s=e.target.closest('.sigbtn');if(s)return send({t:'sig',pi:+s.dataset.s});
+  const b=e.target.closest('.pbtn');if(!b||sel===null)return;
+  const pi=+b.dataset.i,c=V.hand[sel];if(!can(c,V.piles[pi],pi))return;sel=null;send({t:'play',c,pi});
+});
+$('copy').addEventListener('click',async()=>{
+  const url=location.origin+location.pathname+'#'+code;
+  try{await navigator.clipboard.writeText(url);$('copy').textContent='コピーしました'}catch(e){$('copy').textContent=url}
+});
+window.addEventListener('beforeunload',e=>{if(isHost&&G&&G.status==='play'){e.preventDefault();e.returnValue=''}});
+const h=/^#([A-Z0-9]{4})$/.exec(location.hash.toUpperCase());if(h)$('codeIn').value=h[1];
+}
+</script>
+</body>
+</html>
