@@ -270,9 +270,9 @@ function setupHost(p){
         const pid=String(m.id||'').slice(0,20),name=String(m.name||'名無し').slice(0,10);
         let pl=G.players.find(x=>x.id===pid);
         if(!pl){
-          if(G.status!=='lobby'){c.send({t:'deny',m:'その部屋はもうゲーム中です'});return}
           if(G.players.length>=5){c.send({t:'deny',m:'満員です（最大5人）'});return}
           pl={id:pid,name};G.players.push(pl);
+          if(G.status==='play'){const nh=[],hs=handSize(G.players.length);while(nh.length<hs&&G.deck.length)nh.push(G.deck.pop());G.hands[pid]=nh.sort((x,y)=>x-y)}
         }else pl.name=name;
         const oldC=conns[pid];if(oldC&&oldC!==c)try{oldC.close()}catch(e){}
         c.pid=pid;conns[pid]=c;broadcast();
