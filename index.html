@@ -75,6 +75,39 @@ details ul{padding-left:1.2em;margin:4px 0 0;font-size:15px}
 [hidden]{display:none!important}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
+<style>
+/* スマホ向け調整 */
+html{-webkit-text-size-adjust:100%}
+body{touch-action:manipulation}
+button,.c,.face{-webkit-user-select:none;user-select:none}
+input[type=text]{width:100%;font-size:17px}
+.row input[type=text]{width:auto}
+.wrap{padding:max(12px,env(safe-area-inset-top)) max(14px,env(safe-area-inset-right)) calc(20px + env(safe-area-inset-bottom)) max(14px,env(safe-area-inset-left))}
+#acts{position:sticky;bottom:0;z-index:5;background:var(--bg);margin:12px -14px 0;padding:10px 14px calc(10px + env(safe-area-inset-bottom));box-shadow:0 -6px 14px rgba(0,0,0,.08)}
+@media (max-width:600px){
+  h1{font-size:28px}
+  h2{font-size:18px}
+  .panel{padding:16px 14px;border-radius:16px}
+  .players{margin-top:8px;gap:5px}
+  .pl{padding:3px 10px;font-size:13px}
+  .table{padding:10px 8px 8px;border-radius:16px}
+  .piles{gap:6px}
+  .face{aspect-ratio:5/6;font-size:clamp(28px,9vw,40px);border-radius:10px}
+  .up .face,.down .face{border-top-width:6px}
+  .prev{min-height:16px;font-size:11px}
+  .sigbtn{min-height:32px;font-size:11px}
+  .status{min-height:40px;margin-top:8px;font-size:14px}
+  .hand{gap:6px;margin-top:4px}
+  .c{aspect-ratio:4/5;font-size:clamp(26px,8.5vw,36px);border-radius:10px}
+  .c.sel{transform:translateY(-6px)}
+  .btn{min-height:50px}
+  .code{font-size:44px}
+}
+@media (max-height:700px) and (max-width:600px){
+  .face{aspect-ratio:1/1}
+  .c{aspect-ratio:1/1}
+}
+</style>
 </head>
 <body>
 <div class="wrap">
