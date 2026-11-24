@@ -132,7 +132,7 @@ input[type=text]{width:100%;font-size:17px}
   <section id="vLobby" class="panel" hidden>
     <p style="margin:0">部屋コード</p>
     <div class="code" id="lobbyCode"></div>
-    <div class="row" style="margin-top:10px"><button class="btn small" id="copy">招待リンクをコピー</button></div>
+    <div class="row" style="margin-top:10px"><button class="btn small" id="copy">コードをコピー</button></div>
     <div class="players" id="lobbyPlayers"></div>
     <label class="ck"><input type="checkbox" id="hard">上級：1ターン3枚以上</label>
     <p id="lobbyMsg"></p>
@@ -479,8 +479,8 @@ $('piles').addEventListener('click',e=>{
   const pi=+b.dataset.i,c=V.hand[sel];if(!can(c,V.piles[pi],pi))return;sel=null;send({t:'play',c,pi});
 });
 $('copy').addEventListener('click',async()=>{
-  const url=location.origin+location.pathname+'#'+code;
-  try{await navigator.clipboard.writeText(url);$('copy').textContent='コピーしました'}catch(e){$('copy').textContent=url}
+  try{await navigator.clipboard.writeText(code);$('copy').textContent='コピーしました'}catch(e){$('copy').textContent='コード：'+code}
+  setTimeout(()=>{$('copy').textContent='コードをコピー'},2000);
 });
 const h=/^#([A-Z0-9]{4})$/.exec(location.hash.toUpperCase());if(h)$('codeIn').value=h[1];
 else{const sv=snaps(),k=Object.keys(sv).sort((a,b)=>sv[b].t-sv[a].t)[0];if(k&&/^[A-Z0-9]{4}$/.test(k))$('codeIn').value=k}
