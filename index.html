@@ -120,7 +120,7 @@ input[type=text]{width:100%;font-size:17px}
     <h2>名前</h2>
     <input type="text" id="nameIn" maxlength="10" placeholder="ニックネーム" autocomplete="off">
     <h2 style="margin-top:20px">部屋を作る</h2>
-    <p>作った人のスマホが部屋になります。ゲーム中はページを閉じないでください。</p>
+    <p>作った人が抜けても、残った人のスマホが自動で部屋を引き継ぎます。</p>
     <button class="btn main" id="create" style="width:100%">新しい部屋を作る</button>
     <h2 style="margin-top:22px">部屋に入る</h2>
     <div class="row"><input type="text" id="codeIn" maxlength="4" placeholder="ABCD" autocomplete="off" aria-label="部屋コード"><button class="btn main small" id="join">参加</button></div>
@@ -143,6 +143,7 @@ input[type=text]{width:100%;font-size:17px}
     <div class="players" id="gPlayers"></div>
     <div class="table"><div class="piles" id="piles"></div></div>
     <div class="status" id="status"></div>
+    <button class="btn small" id="skip" hidden style="width:100%;margin-top:6px">抜けている人の番を飛ばす</button>
     <div class="hand" id="hand"></div>
     <div class="actions" id="acts">
       <button class="btn" id="undo">1枚戻す</button>
@@ -177,11 +178,13 @@ const store={get(k){try{return localStorage.getItem(k)}catch(e){return null}},se
 let myId=store.get('tg-pid');if(!myId){myId=Math.random().toString(36).slice(2,12);store.set('tg-pid',myId)}
 $('nameIn').value=store.get('tg-name')||'';
 
-let peer=null,isHost=false,code=null,hostConn=null,conns={},G=null,V=null,sel=null,lastKey='';
+/* G: ホストが持つ全体の状態 / V: 自分用の表示 / B: 引き継ぎ用の控え */
+let peer=null,isHost=false,code=null,hostConn=null,conns={},G=null,V=null,B=null,sel=null,lastKey='',pendingFail=null,leaving=false;
 
 function show(v){for(const id of ['vHome','vWait','vLobby','vGame'])$(id).hidden=id!==v;$('stats').hidden=v!=='vGame'}
 const netErr=m=>$('netErr').textContent=m||'';
 const myName=()=>($('nameIn').value.trim()||'名無し').slice(0,10);
+const homeErr=m=>{show('vHome');$('homeErr').textContent=m||''};
 
 /* ===== ルール ===== */
 const top=p=>p[p.length-1];
@@ -195,19 +198,31 @@ const totalLeft=g=>g.deck.length+g.players.reduce((s,p)=>s+(g.hands[p.id]||[]).l
 function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
 
 /* ===== ホスト：ゲーム進行 ===== */
-function lobby(players,hard){return{status:'lobby',players,hard:!!hard,deck:[],hands:{},piles:[[1],[1],[100],[100]],turn:0,tc:0,played:0,undo:[],sig:{},last:null,result:null}}
+function lobby(players,hard,host){return{status:'lobby',host,players,hard:!!hard,deck:[],hands:{},piles:[[1],[1],[100],[100]],turn:0,tc:0,played:0,undo:[],sig:{},last:null,result:null}}
 function over(win){G.status='over';G.result={win,left:win?0:totalLeft(G)}}
+const online=id=>id===myId||!!(conns[id]&&conns[id].open);
+function nextTurn(){
+  const n=G.players.length;
+  for(let k=1;k<=n;k++){const i=(G.turn+k)%n;if((G.hands[G.players[i].id]||[]).length){G.turn=i;break}}
+  G.tc++;G.played=0;G.undo=[];
+  if(!anyMove(G.hands[G.players[G.turn].id]||[],G.piles))over(false);
+}
 function handle(pid,a){
   const pi=G.players.findIndex(p=>p.id===pid);if(pi<0)return;
-  const cur=G.status==='play'&&G.turn===pi,hand=G.hands[pid]||[];
-  if(a.t==='hard'&&pi===0&&G.status==='lobby')G.hard=!!a.v;
-  else if(a.t==='start'&&pi===0&&G.status==='lobby'){
+  const boss=G.host===pid,cur=G.status==='play'&&G.turn===pi,hand=G.hands[pid]||[];
+  if(a.t==='hard'&&boss&&G.status==='lobby')G.hard=!!a.v;
+  else if(a.t==='start'&&boss&&G.status==='lobby'){
     const n=G.players.length,hs=handSize(n),deck=shuffle(Array.from({length:98},(_,i)=>i+2));
-    Object.assign(G,lobby(G.players,G.hard),{status:'play',deck});
+    Object.assign(G,lobby(G.players,G.hard,G.host),{status:'play',deck});
     for(const p of G.players)G.hands[p.id]=deck.splice(-hs).sort((x,y)=>x-y);
     if(!anyMove(G.hands[G.players[0].id],G.piles))over(false);
   }
-  else if(a.t==='again'&&pi===0&&G.status==='over')G=lobby(G.players,G.hard);
+  else if(a.t==='again'&&boss&&G.status==='over')G=lobby(G.players.filter(p=>online(p.id)),G.hard,G.host);
+  else if(a.t==='skip'&&boss&&G.status==='play'&&!online(G.players[G.turn].id)){
+    const cp=G.players[G.turn].id,h=G.hands[cp]||[];
+    while(h.length<handSize(G.players.length)&&G.deck.length&&G.played>=minPlays(G))h.push(G.deck.pop());
+    h.sort((x,y)=>x-y);nextTurn();
+  }
   else if(a.t==='sig'&&G.status==='play'&&a.pi>=0&&a.pi<4){
     const s=G.sig[pid],p=s&&s.t===G.tc?s.p.slice():['','','',''];
     p[a.pi]=p[a.pi]==='go'?'no':p[a.pi]==='no'?'':'go';G.sig[pid]={t:G.tc,p};
@@ -224,104 +239,152 @@ function handle(pid,a){
   else if(a.t==='end'&&cur&&G.played>=minPlays(G)){
     const hs=handSize(G.players.length);
     while(hand.length<hs&&G.deck.length)hand.push(G.deck.pop());hand.sort((x,y)=>x-y);
-    const n=G.players.length;
-    for(let k=1;k<=n;k++){const i=(G.turn+k)%n;if((G.hands[G.players[i].id]||[]).length){G.turn=i;break}}
-    G.tc++;G.played=0;G.undo=[];
-    if(!anyMove(G.hands[G.players[G.turn].id]||[],G.piles))over(false);
+    nextTurn();
   }
   else return;
   broadcast();
 }
 function viewFor(pid){
-  return{status:G.status,code,hard:G.hard,deckN:G.deck.length,left:G.status==='lobby'?98:totalLeft(G),piles:G.piles,turn:G.turn,tc:G.tc,
+  return{status:G.status,code,hard:G.hard,hostId:G.host,deckN:G.deck.length,left:G.status==='lobby'?98:totalLeft(G),piles:G.piles,turn:G.turn,tc:G.tc,
     played:G.played,need:G.status==='play'?minPlays(G):0,undoN:G.undo.length,last:G.last,result:G.result,me:pid,
-    players:G.players.map(p=>({id:p.id,name:p.name,n:(G.hands[p.id]||[]).length,on:p.id===myId||!!(conns[p.id]&&conns[p.id].open)})),
+    players:G.players.map(p=>({id:p.id,name:p.name,n:(G.hands[p.id]||[]).length,on:online(p.id)})),
     sig:Object.fromEntries(Object.entries(G.sig).filter(([,s])=>s.t===G.tc).map(([k,s])=>[k,s.p])),
     hand:(G.hands[pid]||[]).slice()};
 }
 function broadcast(){
-  for(const p of G.players){const c=conns[p.id];if(c&&c.open)try{c.send({t:'state',v:viewFor(p.id)})}catch(e){}}
-  V=viewFor(myId);render();
+  for(const p of G.players){const c=conns[p.id];if(c&&c.open)try{c.send({t:'state',v:viewFor(p.id),b:G})}catch(e){}}
+  B=G;V=viewFor(myId);render();
+}
+function setupHost(p){
+  p.on('disconnected',()=>{if(peer===p&&!leaving)try{p.reconnect()}catch(e){}});
+  p.on('error',e=>{
+    if(peer!==p||!isHost)return;
+    if(e.type==='unavailable-id'){demote();return}
+    if(e.type!=='peer-unavailable')netErr('通信エラー：'+e.type);
+  });
+  p.on('connection',c=>{
+    c.on('data',m=>{
+      if(!m||typeof m!=='object'||peer!==p)return;
+      if(m.t==='join'){
+        const pid=String(m.id||'').slice(0,20),name=String(m.name||'名無し').slice(0,10);
+        let pl=G.players.find(x=>x.id===pid);
+        if(!pl){
+          if(G.status!=='lobby'){c.send({t:'deny',m:'その部屋はもうゲーム中です'});return}
+          if(G.players.length>=5){c.send({t:'deny',m:'満員です（最大5人）'});return}
+          pl={id:pid,name};G.players.push(pl);
+        }else pl.name=name;
+        c.pid=pid;conns[pid]=c;broadcast();
+      }else if(c.pid)handle(c.pid,m);
+    });
+    c.on('close',()=>{if(peer!==p||!c.pid||conns[c.pid]!==c)return;delete conns[c.pid];
+      if(G.status==='lobby')G.players=G.players.filter(x=>x.id!==c.pid);broadcast()});
+  });
 }
 
 /* ===== 接続 ===== */
 function newCode(){let s='';for(let i=0;i<4;i++)s+=CH[Math.floor(Math.random()*CH.length)];return s}
 function noLib(){if(typeof Peer==='undefined'){$('homeErr').textContent='通信ライブラリを読み込めませんでした。電波の良い所で開き直してください。';return true}return false}
 function createRoom(tries=0){
-  if(noLib())return;store.set('tg-name',myName());
-  isHost=true;code=newCode();show('vWait');$('waitMsg').textContent='部屋を作っています…';
-  peer=new Peer(PREFIX+code);
-  peer.on('open',()=>{G=lobby([{id:myId,name:myName()}],false);setHash();broadcast()});
-  peer.on('error',e=>{
-    if(e.type==='unavailable-id'&&tries<5){peer.destroy();return createRoom(tries+1)}
-    if(!G){show('vHome');$('homeErr').textContent='部屋を作れませんでした（'+e.type+'）。少し待ってもう一度。'}else netErr('通信エラー：'+e.type);
-  });
-  peer.on('disconnected',()=>{try{peer.reconnect()}catch(e){}});
-  peer.on('connection',c=>{
-    c.on('data',m=>{
-      if(!m||typeof m!=='object')return;
-      if(m.t==='join'){
-        const pid=String(m.id||'').slice(0,20),name=String(m.name||'名無し').slice(0,10);
-        let p=G.players.find(x=>x.id===pid);
-        if(!p){
-          if(G.status!=='lobby'){c.send({t:'deny',m:'その部屋はもうゲーム中です'});return}
-          if(G.players.length>=5){c.send({t:'deny',m:'満員です（最大5人）'});return}
-          p={id:pid,name};G.players.push(p);
-        }else p.name=name;
-        c.pid=pid;conns[pid]=c;broadcast();
-      }else if(c.pid)handle(c.pid,m);
-    });
-    c.on('close',()=>{if(c.pid&&conns[c.pid]===c){delete conns[c.pid];
-      if(G.status==='lobby')G.players=G.players.filter(p=>p.id!==c.pid);broadcast()}});
-  });
+  if(noLib())return;store.set('tg-name',myName());leaving=false;
+  code=newCode();show('vWait');$('waitMsg').textContent='部屋を作っています…';
+  const p=new Peer(PREFIX+code);peer=p;
+  p.on('open',()=>{isHost=true;G=lobby([{id:myId,name:myName()}],false,myId);setHash();setupHost(p);broadcast()});
+  p.on('error',e=>{if(isHost)return;
+    if(e.type==='unavailable-id'&&tries<5){p.destroy();return createRoom(tries+1)}
+    homeErr('部屋を作れませんでした（'+e.type+'）。少し待ってもう一度。')});
+}
+function onHostData(m){
+  if(!m||typeof m!=='object')return;
+  if(m.t==='state'){V=m.v;if(m.b&&typeof m.b==='object')B=m.b;netErr('');render()}
+  else if(m.t==='deny'){V=null;B=null;leaving=true;try{peer.destroy()}catch(e){}homeErr(m.m)}
+}
+function connectClient(onFail){
+  let done=false;
+  const c=peer.connect(PREFIX+code,{reliable:true});
+  const fail=()=>{if(done)return;done=true;clearTimeout(to);pendingFail=null;try{c.close()}catch(e){}onFail()};
+  const to=setTimeout(fail,6000);pendingFail=fail;
+  c.on('open',()=>{if(done)return;done=true;clearTimeout(to);pendingFail=null;hostConn=c;c.send({t:'join',id:myId,name:myName()});setHash()});
+  c.on('data',onHostData);
+  c.on('close',()=>{if(hostConn===c){hostConn=null;lostHost()}});
+}
+function clientPeer(onOpen){
+  const p=new Peer();peer=p;
+  p.on('open',()=>{if(peer===p)onOpen()});
+  p.on('error',e=>{if(peer!==p)return;if(e.type==='peer-unavailable'&&pendingFail)pendingFail();else if(!V)homeErr('通信エラー：'+e.type);else netErr('通信エラー：'+e.type)});
+  p.on('disconnected',()=>{if(peer===p&&!leaving)try{p.reconnect()}catch(e){}});
 }
 function joinRoom(c){
   if(noLib())return;
   c=(c||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
   if(c.length!==4){$('homeErr').textContent='4文字のコードを入れてください';return}
-  store.set('tg-name',myName());$('homeErr').textContent='';
-  isHost=false;code=c;show('vWait');$('waitMsg').textContent='部屋 '+c+' に接続しています…';
-  if(peer)peer.destroy();
-  peer=new Peer();
-  const fail=m=>{if(!V){show('vHome');$('homeErr').textContent=m}else netErr(m)};
-  const t=setTimeout(()=>fail('つながりませんでした。コードを確認するか、Wi-Fiとモバイル通信を切り替えて試してください。'),15000);
-  peer.on('error',e=>{clearTimeout(t);fail(e.type==='peer-unavailable'?'その部屋は見つかりません（作った人のページが閉じているかも）':'通信エラー：'+e.type)});
-  peer.on('open',()=>{
-    hostConn=peer.connect(PREFIX+c,{reliable:true});
-    hostConn.on('open',()=>{clearTimeout(t);hostConn.send({t:'join',id:myId,name:myName()});setHash()});
-    hostConn.on('data',m=>{
-      if(m&&m.t==='state'){V=m.v;netErr('');render()}
-      else if(m&&m.t==='deny'){clearTimeout(t);V=null;show('vHome');$('homeErr').textContent=m.m;peer.destroy()}
-    });
-    hostConn.on('close',()=>{if(V){netErr('部屋との接続が切れました。');V=null;show('vHome');$('homeErr').textContent='部屋との接続が切れました。もう一度「参加」で戻れます。';$('codeIn').value=code}});
-  });
+  store.set('tg-name',myName());$('homeErr').textContent='';leaving=false;
+  isHost=false;code=c;V=null;B=null;show('vWait');$('waitMsg').textContent='部屋 '+c+' に接続しています…';
+  if(peer)try{peer.destroy()}catch(e){}
+  clientPeer(()=>connectClient(()=>homeErr('その部屋は見つかりません。コードを確認するか、Wi-Fiとモバイル通信を切り替えて試してください。')));
 }
-function send(a){if(isHost)handle(myId,a);else if(hostConn&&hostConn.open)hostConn.send(a);else netErr('接続が切れています')}
+/* 部屋の持ち主が抜けたら、残った人のうち一番手が部屋を引き継ぐ */
+function becomeHost(state,onFail){
+  const p=new Peer(PREFIX+code);let ok=false;
+  p.on('open',()=>{
+    ok=true;const old=peer;peer=p;isHost=true;hostConn=null;conns={};
+    G=JSON.parse(JSON.stringify(state));const prev=G.host;G.host=myId;
+    if(G.status==='lobby')G.players=G.players.filter(x=>x.id!==prev);
+    setupHost(p);try{old&&old!==p&&old.destroy()}catch(e){}
+    broadcast();netErr('');
+  });
+  p.on('error',()=>{if(ok)return;try{p.destroy()}catch(e){}onFail()});
+}
+/* 自分が部屋だったのに、離れている間に他の人が引き継いでいたら参加者に戻る */
+function demote(){
+  const old=peer;isHost=false;G=null;conns={};
+  try{old&&old.destroy()}catch(e){}
+  netErr('部屋はほかの人が引き継ぎました。参加者として戻ります…');
+  clientPeer(()=>connectClient(()=>{V=null;homeErr('部屋に戻れませんでした。もう一度「参加」を押してください。');$('codeIn').value=code}));
+}
+function lostHost(){
+  if(leaving||isHost)return;
+  if(!B){V=null;homeErr('部屋との接続が切れました。');$('codeIn').value=code||'';return}
+  const others=B.players.filter(p=>p.id!==B.host);
+  const rank=Math.max(0,others.findIndex(p=>p.id===myId));
+  const t0=Date.now();
+  netErr('部屋の持ち主との接続が切れました。引き継いでいます…');
+  const step=()=>{
+    if(leaving||isHost||hostConn)return;
+    if(Date.now()-t0>90000){V=null;homeErr('部屋を引き継げませんでした。もう一度「参加」を押してください。');$('codeIn').value=code;return}
+    connectClient(()=>{
+      if(leaving||isHost||hostConn)return;
+      if(Date.now()-t0>=rank*5000)becomeHost(B,()=>setTimeout(step,2000));
+      else setTimeout(step,1500);
+    });
+  };
+  setTimeout(step,700);
+}
+function send(a){if(isHost)handle(myId,a);else if(hostConn&&hostConn.open)hostConn.send(a);else netErr('つなぎ直しています。少し待ってください')}
 function setHash(){try{history.replaceState(null,'','#'+code)}catch(e){}}
 function leave(){
-  if(isHost&&G&&G.status!=='lobby'&&G.players.length>1&&!window.confirmLeave){
-    window.confirmLeave=true;netErr('あなたが部屋なので、出るとゲームが終わります。もう一度押すと退出します。');return}
-  window.confirmLeave=false;
+  leaving=true;
   try{peer&&peer.destroy()}catch(e){}
-  peer=null;hostConn=null;conns={};G=null;V=null;isHost=false;sel=null;netErr('');
+  peer=null;hostConn=null;conns={};G=null;V=null;B=null;isHost=false;sel=null;pendingFail=null;netErr('');
   try{history.replaceState(null,'',location.pathname+location.search)}catch(e){}
   show('vHome');
 }
 
 /* ===== 描画 ===== */
 const nm=id=>{if(id===V.me)return'あなた';const p=V.players.find(x=>x.id===id);return p?p.name:'?'};
-function chips(withN){return V.players.map((p,i)=>`<span class="pl ${withN&&V.status==='play'&&i===V.turn?'cur':''} ${p.on?'':'off'}">${esc(p.id===V.me?p.name+'（あなた）':p.name)}${withN?` <b>${p.n}</b>`:i===0?'（部屋）':''}</span>`).join('')}
+function chips(withN){return V.players.map((p,i)=>`<span class="pl ${withN&&V.status==='play'&&i===V.turn?'cur':''} ${p.on?'':'off'}">${esc(p.id===V.me?p.name+'（あなた）':p.name)}${withN?` <b>${p.n}</b>`:p.id===V.hostId?'（部屋）':''}</span>`).join('')}
 function render(){
   if(!V)return;
+  const boss=V.hostId===V.me;
   if(V.status==='lobby'){
-    show('vLobby');const host=V.players[0]&&V.players[0].id===V.me;
+    show('vLobby');
     $('lobbyCode').textContent=V.code;$('lobbyPlayers').innerHTML=chips(false);
-    $('hard').checked=V.hard;$('hard').disabled=!host;$('start').hidden=!host;
-    $('lobbyMsg').textContent=host?`${V.players.length}人が参加中。そろったら開始（最大5人）。`:'部屋を作った人の開始を待っています。';
+    $('hard').checked=V.hard;$('hard').disabled=!boss;$('start').hidden=!boss;
+    $('lobbyMsg').textContent=boss?`${V.players.length}人が参加中。そろったら開始（最大5人）。`:'部屋の持ち主の開始を待っています。';
     return;
   }
   show('vGame');
-  const mt=V.status==='play'&&V.players[V.turn]&&V.players[V.turn].id===V.me,hand=V.hand;
+  const curP=V.players[V.turn];
+  const mt=V.status==='play'&&curP&&curP.id===V.me,hand=V.hand;
   if(sel!==null&&(!mt||sel>=hand.length))sel=null;
   const c=mt&&sel!==null?hand[sel]:null;
   const key=V.last?V.last.n+':'+V.last.pi:'',flash=key&&key!==lastKey&&V.last.by!==V.me?V.last.pi:-1;lastKey=key;
@@ -344,8 +407,9 @@ function render(){
   else if(mt){
     dots=`<span class="dots">${Array.from({length:V.need},(_,i)=>`<i class="${i<V.played?'on':''}"></i>`).join('')}</span>`;
     msg=V.played<V.need?`あなたの番：あと${V.need-V.played}枚`:anyMove(hand,V.piles)?'さらに出すか、ターン終了':'もう出せません。ターン終了を';
-  }else msg=`${esc(nm(V.players[V.turn].id))}さんの番（${V.played}枚出した）`;
+  }else msg=`${esc(nm(curP.id))}さんの番（${V.played}枚出した）${curP.on?'':'・接続が切れています'}`;
   $('status').innerHTML=dots+`<span>${msg}</span>`;
+  $('skip').hidden=!(boss&&V.status==='play'&&curP&&!curP.on);
   $('acts').hidden=!mt;$('end').disabled=V.played<V.need;$('undo').disabled=!V.undoN;
   $('roomLab').textContent='部屋 '+V.code+(V.hard?'・上級':'');
   $('result').hidden=V.status!=='over';
@@ -353,7 +417,7 @@ function render(){
     const n=V.result.left;
     $('rTitle').textContent=V.result.win?'完全勝利！':'ここまで';$('rNum').textContent=n;
     $('rMsg').textContent=V.result.win?'98枚すべて出し切りました。':n<10?`残り${n}枚。上出来です。`:`残り${n}枚。次はもっと減らそう。`;
-    $('again').hidden=V.players[0].id!==V.me;
+    $('again').hidden=!boss;
   }
 }
 
@@ -366,9 +430,10 @@ $('leave1').addEventListener('click',leave);$('leave2').addEventListener('click'
 $('start').addEventListener('click',()=>send({t:'start'}));
 $('hard').addEventListener('change',()=>send({t:'hard',v:$('hard').checked}));
 $('again').addEventListener('click',()=>send({t:'again'}));
+$('skip').addEventListener('click',()=>send({t:'skip'}));
 $('undo').addEventListener('click',()=>send({t:'undo'}));
 $('end').addEventListener('click',()=>{sel=null;send({t:'end'})});
-$('hand').addEventListener('click',e=>{const b=e.target.closest('.c');if(!b||!V)return;const mt=V.players[V.turn]&&V.players[V.turn].id===V.me&&V.status==='play';if(!mt)return;const i=+b.dataset.i;sel=sel===i?null:i;render()});
+$('hand').addEventListener('click',e=>{const b=e.target.closest('.c');if(!b||!V)return;const cp=V.players[V.turn];if(!(V.status==='play'&&cp&&cp.id===V.me))return;const i=+b.dataset.i;sel=sel===i?null:i;render()});
 $('piles').addEventListener('click',e=>{
   const s=e.target.closest('.sigbtn');if(s)return send({t:'sig',pi:+s.dataset.s});
   const b=e.target.closest('.pbtn');if(!b||sel===null)return;
@@ -378,7 +443,6 @@ $('copy').addEventListener('click',async()=>{
   const url=location.origin+location.pathname+'#'+code;
   try{await navigator.clipboard.writeText(url);$('copy').textContent='コピーしました'}catch(e){$('copy').textContent=url}
 });
-window.addEventListener('beforeunload',e=>{if(isHost&&G&&G.status==='play'){e.preventDefault();e.returnValue=''}});
 const h=/^#([A-Z0-9]{4})$/.exec(location.hash.toUpperCase());if(h)$('codeIn').value=h[1];
 }
 </script>
