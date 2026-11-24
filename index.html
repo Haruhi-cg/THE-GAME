@@ -212,6 +212,7 @@ function handle(pid,a){
   const boss=G.host===pid,cur=G.status==='play'&&G.turn===pi,hand=G.hands[pid]||[];
   if(a.t==='hard'&&boss&&G.status==='lobby')G.hard=!!a.v;
   else if(a.t==='start'&&boss&&G.status==='lobby'){
+    G.players=G.players.filter(p=>online(p.id));
     const n=G.players.length,hs=handSize(n),deck=shuffle(Array.from({length:98},(_,i)=>i+2));
     Object.assign(G,lobby(G.players,G.hard,G.host),{status:'play',deck});
     for(const p of G.players)G.hands[p.id]=deck.splice(-hs).sort((x,y)=>x-y);
@@ -266,6 +267,7 @@ function setupHost(p){
     c.on('data',m=>{
       if(!m||typeof m!=='object'||peer!==p)return;
       c.seen=Date.now();if(m.t==='pong')return;
+      if(m.t==='leave'){if(c.pid){delete conns[c.pid];if(G.status==='lobby')G.players=G.players.filter(x=>x.id!==c.pid);broadcast()}return}
       if(m.t==='join'){
         const pid=String(m.id||'').slice(0,20),name=String(m.name||'名無し').slice(0,10);
         let pl=G.players.find(x=>x.id===pid);
@@ -278,8 +280,7 @@ function setupHost(p){
         c.pid=pid;conns[pid]=c;broadcast();
       }else if(c.pid)handle(c.pid,m);
     });
-    c.on('close',()=>{if(peer!==p||!c.pid||conns[c.pid]!==c)return;delete conns[c.pid];
-      if(G.status==='lobby')G.players=G.players.filter(x=>x.id!==c.pid);broadcast()});
+    c.on('close',()=>{if(peer!==p||!c.pid||conns[c.pid]!==c)return;delete conns[c.pid];broadcast()});
   });
 }
 
@@ -290,7 +291,7 @@ function createRoom(tries=0){
   if(noLib())return;store.set('tg-name',myName());leaving=false;
   code=newCode();show('vWait');$('waitMsg').textContent='部屋を作っています…';
   const p=new Peer(PREFIX+code);peer=p;
-  p.on('open',()=>{isHost=true;G=lobby([{id:myId,name:myName()}],false,myId);setHash();setupHost(p);broadcast()});
+  p.on('open',()=>{isHost=true;G=lobby([{id:myId,name:myName()}],false,myId);setHash();store.set('tg-room',code);setupHost(p);broadcast()});
   p.on('error',e=>{if(isHost)return;
     if(e.type==='unavailable-id'&&tries<5){p.destroy();return createRoom(tries+1)}
     homeErr('部屋を作れませんでした（'+e.type+'）。少し待ってもう一度。')});
@@ -298,14 +299,14 @@ function createRoom(tries=0){
 function onHostData(m){
   if(!m||typeof m!=='object')return;
   if(m.t==='state'){V=m.v;if(m.b&&typeof m.b==='object')B=m.b;netErr('');render()}
-  else if(m.t==='deny'){V=null;B=null;leaving=true;try{peer.destroy()}catch(e){}homeErr(m.m)}
+  else if(m.t==='deny'){V=null;B=null;leaving=true;store.set('tg-room','');try{peer.destroy()}catch(e){}homeErr(m.m)}
 }
 function connectClient(onFail){
   let done=false;
   const c=peer.connect(PREFIX+code,{reliable:true});
   const fail=()=>{if(done)return;done=true;clearTimeout(to);pendingFail=null;try{c.close()}catch(e){}onFail()};
   const to=setTimeout(fail,6000);pendingFail=fail;
-  c.on('open',()=>{if(done)return;done=true;clearTimeout(to);pendingFail=null;hostConn=c;lastHost=Date.now();c.send({t:'join',id:myId,name:myName()});setHash()});
+  c.on('open',()=>{if(done)return;done=true;clearTimeout(to);pendingFail=null;hostConn=c;lastHost=Date.now();c.send({t:'join',id:myId,name:myName()});setHash();store.set('tg-room',code)});
   c.on('data',m=>{if(hostConn===c)lastHost=Date.now();onHostData(m)});
   c.on('close',()=>{if(hostConn===c){hostConn=null;lostHost()}});
 }
@@ -315,14 +316,18 @@ function clientPeer(onOpen){
   p.on('error',e=>{if(peer!==p)return;if(e.type==='peer-unavailable'&&pendingFail)pendingFail();else if(!V)homeErr('通信エラー：'+e.type);else netErr('通信エラー：'+e.type)});
   p.on('disconnected',()=>{if(peer===p&&!leaving)try{p.reconnect()}catch(e){}});
 }
-function joinRoom(c){
+function joinRoom(c,tries=0){
   if(noLib())return;
   c=(c||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
   if(c.length!==4){$('homeErr').textContent='4文字のコードを入れてください';return}
   store.set('tg-name',myName());$('homeErr').textContent='';leaving=false;
-  isHost=false;code=c;V=null;B=null;show('vWait');$('waitMsg').textContent='部屋 '+c+' に接続しています…';
+  isHost=false;code=c;V=null;B=null;show('vWait');$('waitMsg').textContent='部屋 '+c+(tries?' に戻っています…':' に接続しています…');
   if(peer)try{peer.destroy()}catch(e){}
-  clientPeer(()=>connectClient(()=>homeErr('その部屋は見つかりません。コードを確認するか、Wi-Fiとモバイル通信を切り替えて試してください。')));
+  clientPeer(()=>connectClient(()=>{
+    if(leaving)return;
+    if(tries>0){setTimeout(()=>{if(!leaving&&!hostConn&&!isHost)joinRoom(c,tries-1)},3000);return}
+    homeErr('その部屋は見つかりません。コードを確認するか、Wi-Fiとモバイル通信を切り替えて試してください。');$('codeIn').value=c;
+  }));
 }
 /* 部屋の持ち主が抜けたら、残った人のうち一番手が部屋を引き継ぐ */
 function becomeHost(state,onFail){
@@ -349,10 +354,9 @@ function lostHost(){
   const others=B.players.filter(p=>p.id!==B.host);
   const rank=Math.max(0,others.findIndex(p=>p.id===myId));
   const t0=Date.now();
-  netErr('部屋の持ち主との接続が切れました。引き継いでいます…');
+  netErr('部屋の持ち主との接続が切れました。つなぎ直しています…');
   const step=()=>{
     if(leaving||isHost||hostConn)return;
-    if(Date.now()-t0>90000){V=null;homeErr('部屋を引き継げませんでした。もう一度「参加」を押してください。');$('codeIn').value=code;return}
     connectClient(()=>{
       if(leaving||isHost||hostConn)return;
       if(Date.now()-t0>=rank*5000)becomeHost(B,()=>setTimeout(step,2000));
@@ -364,8 +368,9 @@ function lostHost(){
 function send(a){if(isHost)handle(myId,a);else if(hostConn&&hostConn.open)hostConn.send(a);else netErr('つなぎ直しています。少し待ってください')}
 function setHash(){try{history.replaceState(null,'','#'+code)}catch(e){}}
 function leave(){
-  leaving=true;
-  try{peer&&peer.destroy()}catch(e){}
+  leaving=true;store.set('tg-room','');
+  try{if(hostConn&&hostConn.open)hostConn.send({t:'leave'})}catch(e){}
+  const old=peer;setTimeout(()=>{try{old&&old.destroy()}catch(e){}},300);
   peer=null;hostConn=null;conns={};G=null;V=null;B=null;isHost=false;sel=null;pendingFail=null;netErr('');
   try{history.replaceState(null,'',location.pathname+location.search)}catch(e){}
   show('vHome');
@@ -376,7 +381,7 @@ setInterval(()=>{
   if(isHost&&G){
     let ch=false;
     for(const id in conns){const c=conns[id];
-      if(now-(c.seen||now)>8000){delete conns[id];try{c.close()}catch(e){}if(G.status==='lobby')G.players=G.players.filter(x=>x.id!==id);ch=true}
+      if(now-(c.seen||now)>8000){delete conns[id];try{c.close()}catch(e){}ch=true}
       else try{c.send({t:'ping'})}catch(e){}}
     if(ch)broadcast();
   }else if(hostConn){
@@ -460,6 +465,10 @@ $('copy').addEventListener('click',async()=>{
   try{await navigator.clipboard.writeText(url);$('copy').textContent='コピーしました'}catch(e){$('copy').textContent=url}
 });
 const h=/^#([A-Z0-9]{4})$/.exec(location.hash.toUpperCase());if(h)$('codeIn').value=h[1];
+/* 前にいた部屋があれば自動で戻る（「部屋を出る」を押すまで抜けない） */
+const saved=store.get('tg-room');
+if(saved&&/^[A-Z0-9]{4}$/.test(saved)&&(!h||h[1]===saved)&&typeof Peer!=='undefined')joinRoom(saved,10);
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&hostConn&&Date.now()-lastHost>4000){const c=hostConn;hostConn=null;try{c.close()}catch(e){}lostHost()}});
 }
 </script>
 </body>
