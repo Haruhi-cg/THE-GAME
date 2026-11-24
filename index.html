@@ -179,7 +179,7 @@ let myId=store.get('tg-pid');if(!myId){myId=Math.random().toString(36).slice(2,1
 $('nameIn').value=store.get('tg-name')||'';
 
 /* G: ホストが持つ全体の状態 / V: 自分用の表示 / B: 引き継ぎ用の控え */
-let peer=null,isHost=false,code=null,hostConn=null,conns={},G=null,V=null,B=null,sel=null,lastKey='',pendingFail=null,leaving=false;
+let peer=null,isHost=false,code=null,hostConn=null,conns={},G=null,V=null,B=null,sel=null,lastKey='',pendingFail=null,leaving=false,lastHost=0;
 
 function show(v){for(const id of ['vHome','vWait','vLobby','vGame'])$(id).hidden=id!==v;$('stats').hidden=v!=='vGame'}
 const netErr=m=>$('netErr').textContent=m||'';
@@ -265,6 +265,7 @@ function setupHost(p){
   p.on('connection',c=>{
     c.on('data',m=>{
       if(!m||typeof m!=='object'||peer!==p)return;
+      c.seen=Date.now();if(m.t==='pong')return;
       if(m.t==='join'){
         const pid=String(m.id||'').slice(0,20),name=String(m.name||'名無し').slice(0,10);
         let pl=G.players.find(x=>x.id===pid);
@@ -273,6 +274,7 @@ function setupHost(p){
           if(G.players.length>=5){c.send({t:'deny',m:'満員です（最大5人）'});return}
           pl={id:pid,name};G.players.push(pl);
         }else pl.name=name;
+        const oldC=conns[pid];if(oldC&&oldC!==c)try{oldC.close()}catch(e){}
         c.pid=pid;conns[pid]=c;broadcast();
       }else if(c.pid)handle(c.pid,m);
     });
@@ -303,8 +305,8 @@ function connectClient(onFail){
   const c=peer.connect(PREFIX+code,{reliable:true});
   const fail=()=>{if(done)return;done=true;clearTimeout(to);pendingFail=null;try{c.close()}catch(e){}onFail()};
   const to=setTimeout(fail,6000);pendingFail=fail;
-  c.on('open',()=>{if(done)return;done=true;clearTimeout(to);pendingFail=null;hostConn=c;c.send({t:'join',id:myId,name:myName()});setHash()});
-  c.on('data',onHostData);
+  c.on('open',()=>{if(done)return;done=true;clearTimeout(to);pendingFail=null;hostConn=c;lastHost=Date.now();c.send({t:'join',id:myId,name:myName()});setHash()});
+  c.on('data',m=>{if(hostConn===c)lastHost=Date.now();onHostData(m)});
   c.on('close',()=>{if(hostConn===c){hostConn=null;lostHost()}});
 }
 function clientPeer(onOpen){
@@ -368,6 +370,20 @@ function leave(){
   try{history.replaceState(null,'',location.pathname+location.search)}catch(e){}
   show('vHome');
 }
+/* 生存確認：8秒応答がなければ切れたとみなす（閉じたタブやスリープを検知） */
+setInterval(()=>{
+  const now=Date.now();
+  if(isHost&&G){
+    let ch=false;
+    for(const id in conns){const c=conns[id];
+      if(now-(c.seen||now)>8000){delete conns[id];try{c.close()}catch(e){}if(G.status==='lobby')G.players=G.players.filter(x=>x.id!==id);ch=true}
+      else try{c.send({t:'ping'})}catch(e){}}
+    if(ch)broadcast();
+  }else if(hostConn){
+    if(now-lastHost>8000){const c=hostConn;hostConn=null;try{c.close()}catch(e){}lostHost()}
+    else try{hostConn.send({t:'pong'})}catch(e){}
+  }
+},2000);
 
 /* ===== 描画 ===== */
 const nm=id=>{if(id===V.me)return'あなた';const p=V.players.find(x=>x.id===id);return p?p.name:'?'};
